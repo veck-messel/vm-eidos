@@ -91,6 +91,58 @@ class Boundary:
             s = s[:-1]
         return s + "\n"
 
+class PeriodicBoundary(Boundary):
+    def _register_grid(
+        self, grid: Grid, x: ListOrSlice, y: ListOrSlice, z: ListOrSlice
+    ):
+        super()._register_grid(grid=grid, x=x, y=y, z=z)
+
+        if self.x == 0 or self.x == -1:
+            self.__class__ = _PeriodicBoundaryX
+            if hasattr(grid, "_xlow_boundary") or hasattr(grid, "_xhigh_boundary"):
+                raise AttributeError("grid already has an xlow/xhigh boundary!")
+            setattr(grid, "_xlow_boundary", self)
+            setattr(grid, "_xhigh_boundary", self)
+        elif self.y == 0 or self.y == -1:
+            self.__class__ = _PeriodicBoundaryY
+            if hasattr(grid, "_ylow_boundary") or hasattr(grid, "_yhigh_boundary"):
+                raise AttributeError("grid already has an ylow/yhigh boundary!")
+            setattr(grid, "_ylow_boundary", self)
+            setattr(grid, "_yhigh_boundary", self)
+        elif self.z == 0 or self.z == -1:
+            self.__class__ = _PeriodicBoundaryZ
+            if hasattr(grid, "_zlow_boundary") or hasattr(grid, "_zhigh_boundary"):
+                raise AttributeError("grid already has an zlow/zhigh boundary!")
+            setattr(grid, "_zlow_boundary", self)
+            setattr(grid, "_zhigh_boundary", self)
+        else:
+            raise IndexError(
+                "A periodic boundary should be placed at the boundary of the "
+                "grid using a single index (either 0 or -1)"
+            )
+
+class _PeriodicBoundaryX(PeriodicBoundary):
+    def update_E(self):
+        self.grid.E[0, :, :, :] = self.grid.E[-1, :, :, :]
+
+    def update_H(self):
+
+        self.grid.H[-1, :, :, :] = self.grid.H[0, :, :, :]
+
+class _PeriodicBoundaryY(PeriodicBoundary):
+    def update_E(self):
+        self.grid.E[:, 0, :, :] = self.grid.E[:, -1, :, :]
+
+    def update_H(self):
+        self.grid.H[:, -1, :, :] = self.grid.H[:, 0, :, :]
+
+class _PeriodicBoundaryZ(PeriodicBoundary):
+    def update_E(self):
+        self.grid.E[:, :, 0, :] = self.grid.E[:, :, -1, :]
+
+    def update_H(self):
+        self.grid.H[:, :, -1, :] = self.grid.H[:, :, 0, :]
+
 class PML(Boundary):
     def __init__(self, a: float = 1e-8, name: str = None):
         super().__init__(name=name)
@@ -280,7 +332,6 @@ class PML(Boundary):
         self.phi_H[..., 1] = self.psi_Hy[..., 2] - self.psi_Hy[..., 0]
         self.phi_H[..., 2] = self.psi_Hz[..., 0] - self.psi_Hz[..., 1]
 
-
 class _PMLXlow(PML):
     def _set_locations(self):
         self.loc = (slice(None, self.thickness), slice(None), slice(None), slice(None))
@@ -300,7 +351,6 @@ class _PMLXlow(PML):
         sigma = self._sigma(bd.arange(self.thickness - 1.0, 0, -1.0))
         self.sigmaH = bd.zeros((self.thickness, self.grid.Ny, self.grid.Nz, 3))
         self.sigmaH[:-1, :, :, 0] = sigma[:, None, None]
-
 
 class _PMLXhigh(PML):
     def _set_locations(self):
@@ -322,7 +372,6 @@ class _PMLXhigh(PML):
         self.sigmaH = bd.zeros((self.thickness, self.grid.Ny, self.grid.Nz, 3))
         self.sigmaH[:-1, :, :, 0] = sigma[:, None, None]
 
-
 class _PMLYlow(PML):
     def _set_locations(self):
         self.loc = (slice(None), slice(None, self.thickness), slice(None))
@@ -342,7 +391,6 @@ class _PMLYlow(PML):
         sigma = self._sigma(bd.arange(self.thickness - 1.0, 0, -1.0))
         self.sigmaH = bd.zeros((self.grid.Nx, self.thickness, self.grid.Nz, 3))
         self.sigmaH[:, :-1, :, 1] = sigma[None, :, None]
-
 
 class _PMLYhigh(PML):
     def _set_locations(self):
@@ -364,7 +412,6 @@ class _PMLYhigh(PML):
         self.sigmaH = bd.zeros((self.grid.Nx, self.thickness, self.grid.Nz, 3))
         self.sigmaH[:, :-1, :, 1] = sigma[None, :, None]
 
-
 class _PMLZlow(PML):
     def _set_locations(self):
         self.loc = (slice(None), slice(None), slice(None, self.thickness), slice(None))
@@ -384,7 +431,6 @@ class _PMLZlow(PML):
         sigma = self._sigma(bd.arange(self.thickness - 1.0, 0, -1.0))
         self.sigmaH = bd.zeros((self.grid.Nx, self.grid.Ny, self.thickness, 3))
         self.sigmaH[:, :, :-1, 2] = sigma[None, None, :]
-
 
 class _PMLZhigh(PML):
     def _set_locations(self):

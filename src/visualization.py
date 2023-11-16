@@ -27,7 +27,7 @@ def visualize(
 ):
     if norm not in ("linear", "lin", "log"):
         raise ValueError("Color map normalization should be 'linear' or 'log'.")
-    from .sources import PointSource, LineSource, PlaneSource
+    from .sources import PointSource
     from .boundaries import _PeriodicBoundaryX, _PeriodicBoundaryY, _PeriodicBoundaryZ
     from .boundaries import (
         _PMLXlow,
@@ -70,7 +70,7 @@ def visualize(
         )
 
     plt.plot([], lw=7, color=objcolor, label="Objects")
-    plt.plot([], lw=3, color=pbcolor, label="Periodic Boundaries")
+    plt.plot([], lw=7, color=pmlcolor, label="PML")
     plt.plot([], lw=3, color=srccolor, label="Sources")
     plt.plot([], lw=3, color=detcolor, label="Detectors")
 
@@ -100,18 +100,7 @@ def visualize(
         raise ValueError("Visualization only works for 2D grids")
 
     for source in grid.sources:
-        if isinstance(source, LineSource):
-            if x is not None:
-                _x = [source.y[0], source.y[-1]]
-                _y = [source.z[0], source.z[-1]]
-            elif y is not None:
-                _x = [source.z[0], source.z[-1]]
-                _y = [source.x[0], source.x[-1]]
-            elif z is not None:
-                _x = [source.x[0], source.x[-1]]
-                _y = [source.y[0], source.y[-1]]
-            plt.plot(_y, _x, lw=3, color=srccolor)
-        elif isinstance(source, PointSource):
+        if isinstance(source, PointSource):
             if x is not None:
                 _x = source.y
                 _y = source.z
@@ -123,49 +112,6 @@ def visualize(
                 _y = source.y
             plt.plot(_y - 0.5, _x - 0.5, lw=3, marker="o", color=srccolor)
             grid_energy[_x, _y] = 0
-        elif isinstance(source, PlaneSource):
-            if x is not None:
-                _x = (
-                    source.y
-                    if source.y.stop > source.y.start + 1
-                    else slice(source.y.start, source.y.start)
-                )
-                _y = (
-                    source.z
-                    if source.z.stop > source.z.start + 1
-                    else slice(source.z.start, source.z.start)
-                )
-            elif y is not None:
-                _x = (
-                    source.z
-                    if source.z.stop > source.z.start + 1
-                    else slice(source.z.start, source.z.start)
-                )
-                _y = (
-                    source.x
-                    if source.x.stop > source.x.start + 1
-                    else slice(source.x.start, source.x.start)
-                )
-            elif z is not None:
-                _x = (
-                    source.x
-                    if source.x.stop > source.x.start + 1
-                    else slice(source.x.start, source.x.start)
-                )
-                _y = (
-                    source.y
-                    if source.y.stop > source.y.start + 1
-                    else slice(source.y.start, source.y.start)
-                )
-            patch = ptc.Rectangle(
-                xy=(_y.start - 0.5, _x.start - 0.5),
-                width=_y.stop - _y.start,
-                height=_x.stop - _x.start,
-                linewidth=0,
-                edgecolor="none",
-                facecolor=srccolor,
-            )
-            plt.gca().add_patch(patch)
 
     for detector in grid.detectors:
         if x is not None:
@@ -262,7 +208,7 @@ def visualize(
     cmap_norm = None
     if norm == "log":
         cmap_norm = LogNorm(vmin=1e-4, vmax=grid_energy.max() + 1e-4)
-    plt.imshow(abs(bd.numpy(grid_energy)), cmap=cmap, interpolation="sinc", norm=cmap_norm)
+    plt.imshow(abs(bd.np(grid_energy)), cmap=cmap, interpolation="sinc", norm=cmap_norm)
 
     plt.ylabel(xlabel)
     plt.xlabel(ylabel)
