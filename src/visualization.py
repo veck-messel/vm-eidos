@@ -27,7 +27,7 @@ def visualize(
 ):
     if norm not in ("linear", "lin", "log"):
         raise ValueError("Color map normalization should be 'linear' or 'log'.")
-    from .sources import PointSource
+    from .sources import PointSource, LineSource
     from .boundaries import _PeriodicBoundaryX, _PeriodicBoundaryY, _PeriodicBoundaryZ
     from .boundaries import (
         _PMLXlow,
@@ -112,6 +112,17 @@ def visualize(
                 _y = source.y
             plt.plot(_y - 0.5, _x - 0.5, lw=3, marker="o", color=srccolor)
             grid_energy[_x, _y] = 0
+        elif isinstance(source, LineSource):
+            if x is not None:
+                _x = [source.y[0], source.y[-1]]
+                _y = [source.z[0], source.z[-1]]
+            elif y is not None:
+                _x = [source.z[0], source.z[-1]]
+                _y = [source.x[0], source.x[-1]]
+            elif z is not None:
+                _x = [source.x[0], source.x[-1]]
+                _y = [source.y[0], source.y[-1]]
+            plt.plot(_y, _x, lw=3, color=srccolor)
 
     for detector in grid.detectors:
         if x is not None:
