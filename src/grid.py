@@ -1,3 +1,5 @@
+from tqdm import tqdm
+
 from utils import constants as const
 from utils.typing_ import Tuple, Number, Tensorlike
 
@@ -156,7 +158,13 @@ class Grid:
         return self.time_steps_passed * self.time_step
 
     def run(self, total_time: Number, progress_bar: bool = True):
-        pass
+        if isinstance(total_time, float):
+            total_time /= self.time_step
+        time = range(0, int(total_time), 1)
+        if progress_bar:
+            time = tqdm(time)
+        for _ in time:
+            self.step()
 
     def step(self):
         self.update_E()
@@ -164,31 +172,110 @@ class Grid:
         self.time_steps_passed += 1
 
     def update_E(self,):
-        pass
+        for boundary in self.boundaries:
+            boundary.update_phi_E()
+
+        curl = curl_H(self.H)
+        self.E += self.courant_number * self.inverse_permittivity * curl
+
+        for obj in self.objects:
+            obj.update_E(curl)
+
+        for boundary in self.boundaries:
+            boundary.update_E()
+
+        for src in self.sources:
+            src.update_E()
+
+        for det in self.detectors:
+            det.detect_E()
 
     def update_H(self, ):
-        pass
+        for boundary in self.boundaries:
+            boundary.update_phi_H()
+
+        curl = curl_E(self.E)
+        self.H -= self.courant_number * self.inverse_permeability * curl
+
+        for obj in self.objects:
+            obj.update_H(curl)
+
+        for boundary in self.boundaries:
+            boundary.update_H()
+
+        for src in self.sources:
+            src.update_H()
+
+        for det in self.detectors:
+            det.detect_H()
 
     def reset(self):
         self.H *= 0.0
         self.E *= 0.0
         self.time_steps_passed *= 0
 
-    def add_source(self,):
-        pass
+    def add_source(self, name, source):
+        source._register_grid(self)
+        self.sources[name] = source
 
-    def add_object(self, ):
-        pass
+    def add_boundary(self, name, boundary):
+        boundary._register_grid(self)
+        self.boundaries[name] = boundary
 
-    def add_detector(self, ):
-        pass
+    def add_object(self, name, obj):
+        obj._register_grid(self)
+        self.objects[name] = obj
 
+    def add_detector(self, name, detector):
+        detector._register_grid(self)
+        self.detectors[name] = detector
+
+    def promote_dtypes_to_complex(self):
+        self.E = self.E.astype(bd.complex)
+        self.H = self.H.astype(bd.complex)
+        [boundary.promote_dtypes_to_complex() for boundary in self.boundaries]
+
+    def __setitem__(self, key, attr):
+        if not isinstance(key, tuple):
+            x, y, z = key, slice(None), slice(None)
+        elif len(key) == 1:
+            x, y, z = key[0], slice(None), slice(None)
+        elif len(key) == 2:
+            x, y, z = key[0], key[1], slice(None)
+        elif len(key) == 3:
+            x, y, z = key
+        else:
+            raise KeyError("maximum number of indices for the grid is 3")
+
+        attr._register_grid(
+            grid=self,
+            x=self._handle_single_key(x),
+            y=self._handle_single_key(y),
+            z=self._handle_single_key(z),
+        )
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(shape=({self.Nx},{self.Ny},{self.Nz}), "
             f"grid_spacing={self.grid_spacing:.2e}, courant_number={self.courant_number:.2f})"
         )
-    
+
     def __str__(self):
-        pass
+        s = repr(self) + "\n"
+        if self.sources:
+            s = s + "\nsources:\n"
+            for src in self.sources:
+                s += str(src)
+        if self.detectors:
+            s = s + "\ndetectors:\n"
+            for det in self.detectors:
+                s += str(det)
+        if self.boundaries:
+            s = s + "\nboundaries:\n"
+            for bnd in self.boundaries:
+                s += str(bnd)
+        if self.objects:
+            s = s + "\nobjects:\n"
+            for obj in self.objects:
+                s += str(obj)
+        return s

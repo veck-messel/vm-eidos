@@ -4,10 +4,9 @@ from utils.typing_ import Number
 from utils.waveforms import *
 
 from .grid import Grid
-from .backend import backend as bd
+
 
 class PointSource:
-    """A source placed at a single point (grid cell) in the grid"""
 
     def __init__(
         self,

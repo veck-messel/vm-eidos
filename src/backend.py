@@ -1,6 +1,7 @@
 import numpy as np
 from functools import wraps
 
+
 class Backend:
     pi = np.pi
 

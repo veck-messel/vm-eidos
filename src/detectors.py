@@ -3,6 +3,7 @@ from utils.typing_ import ListOrSlice, Tuple, List
 from .grid import Grid
 from .backend import backend as bd
 
+
 class LineDetector:
     def __init__(self, name=None):
         self.grid = None

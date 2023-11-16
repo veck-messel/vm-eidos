@@ -3,6 +3,7 @@ from utils.typing_ import ListOrSlice, IntOrSlice
 from .grid import Grid
 from .backend import backend as bd
 
+
 # Base class
 class Boundary:
     def __init__(self, name: str = None):
