@@ -33,6 +33,8 @@ def curl_H(H: Tensorlike) -> Tensorlike:
     return curl
 
 class Grid:
+    from .visualization import visualize
+
     def __init__(
             self,
             shape: Tuple[Number, Number, Number],

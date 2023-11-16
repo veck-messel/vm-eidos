@@ -1,4 +1,4 @@
-from utils.typing_ import Tensorlike, ListOrSlice, IntOrSlice
+from utils.typing_ import ListOrSlice, IntOrSlice
 
 from .grid import Grid
 from .backend import backend as bd
