@@ -1,7 +1,7 @@
 from tqdm import tqdm
 
-from utils import constants as const
-from utils.typing_ import Tuple, Number, Tensorlike
+from .utils import constants as const
+from .utils.typing_ import Tuple, Number, Tensorlike
 
 from .backend import backend as bd
 
@@ -47,7 +47,7 @@ class Grid:
         
         self.grid_spacing = float(grid_spacing)
 
-        self.Nx, self.Ny, self.Nz = self._handle_tuple(shape)
+        self.Nx, self.Ny, self.Nz = self._handle_tupple(shape)
 
         self.D = int(self.Nx > 1) + int(self.Ny > 1) + int(self.Nz > 1)
 

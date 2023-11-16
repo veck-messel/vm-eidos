@@ -1,7 +1,7 @@
 from math import pi, sin
 
-from utils.typing_ import Number
-from utils.waveforms import *
+from .utils.typing_ import Number
+from .utils.waveforms import *
 
 from .grid import Grid
 
@@ -43,7 +43,7 @@ class PointSource:
             (x,), (y,), (z,) = x, y, z
         except (TypeError, ValueError):
             raise ValueError("a point source should be placed on a single grid cell.")
-        self.x, self.y, self.z = grid._handle_tuple((x, y, z))
+        self.x, self.y, self.z = grid._handle_tupple((x, y, z))
         self.period = grid._handle_time(self.period)
 
     def update_E(self):

@@ -1,4 +1,4 @@
-from utils.typing_ import ListOrSlice, IntOrSlice
+from .utils.typing_ import ListOrSlice, IntOrSlice, Tensorlike
 
 from .grid import Grid
 from .backend import backend as bd
@@ -91,54 +91,317 @@ class Boundary:
             s = s[:-1]
         return s + "\n"
 
-class PeriodicBoundary(Boundary):
+class PML(Boundary):
+    def __init__(self, a: float = 1e-8, name: str = None):
+        super().__init__(name=name)
+
+        self.k = 1.0
+        self.thickness = 0
+
+        self.a = a
+
+    def _set_locations(self):
+        raise NotImplementedError
+
+    def _set_shape(self):
+        raise NotImplementedError
+
+    def _set_sigmaE(self):
+        raise NotImplementedError
+
+    def _set_sigmaH(self):
+
+        raise NotImplementedError
+
+    def _sigma(self, vect: Tensorlike):
+        return 40 * vect ** 3 / (self.thickness + 1) ** 4
+
     def _register_grid(
         self, grid: Grid, x: ListOrSlice, y: ListOrSlice, z: ListOrSlice
     ):
+
         super()._register_grid(grid=grid, x=x, y=y, z=z)
 
-        if self.x == 0 or self.x == -1:
-            self.__class__ = _PeriodicBoundaryX
-            if hasattr(grid, "_xlow_boundary") or hasattr(grid, "_xhigh_boundary"):
-                raise AttributeError("grid already has an xlow/xhigh boundary!")
+        if (
+            (self.x.start is None or self.x.start == 0)
+            and (self.x.stop is not None)
+            and (self.x.stop > 0)
+        ):
+            self.__class__ = _PMLXlow
+            if hasattr(grid, "_xlow_boundary"):
+                raise AttributeError("grid already has an xlow boundary!")
             setattr(grid, "_xlow_boundary", self)
+            self._calculate_parameters(thickness=self.x.stop)
+        elif (
+            (self.x.start is not None) and (self.x.stop is None) and (self.x.start < 0)
+        ):
+            self.__class__ = _PMLXhigh
+            if hasattr(grid, "_xhigh_boundary"):
+                raise AttributeError("grid already has an xhigh boundary!")
             setattr(grid, "_xhigh_boundary", self)
-        elif self.y == 0 or self.y == -1:
-            self.__class__ = _PeriodicBoundaryY
-            if hasattr(grid, "_ylow_boundary") or hasattr(grid, "_yhigh_boundary"):
-                raise AttributeError("grid already has an ylow/yhigh boundary!")
+            self._calculate_parameters(thickness=-self.x.start)
+        elif (
+            (self.y.start is None or self.y.start == 0)
+            and (self.y.stop is not None)
+            and (self.y.stop > 0)
+        ):
+            self.__class__ = _PMLYlow
+            if hasattr(grid, "_ylow_boundary"):
+                raise AttributeError("grid already has an ylow boundary!")
             setattr(grid, "_ylow_boundary", self)
+            self._calculate_parameters(thickness=self.y.stop)
+        elif (
+            (self.y.start is not None) and (self.y.stop is None) and (self.y.start < 0)
+        ):
+            self.__class__ = _PMLYhigh
+            if hasattr(grid, "_yhigh_boundary"):
+                raise AttributeError("grid already has an yhigh boundary!")
             setattr(grid, "_yhigh_boundary", self)
-        elif self.z == 0 or self.z == -1:
-            self.__class__ = _PeriodicBoundaryZ
-            if hasattr(grid, "_zlow_boundary") or hasattr(grid, "_zhigh_boundary"):
-                raise AttributeError("grid already has an zlow/zhigh boundary!")
+            self._calculate_parameters(thickness=-self.y.start)
+        elif (
+            (self.z.start is None or self.z.start == 0)
+            and (self.z.stop is not None)
+            and (self.z.stop > 0)
+        ):
+            self.__class__ = _PMLZlow
+            if hasattr(grid, "_zlow_boundary"):
+                raise AttributeError("grid already has an zlow boundary!")
             setattr(grid, "_zlow_boundary", self)
+            self._calculate_parameters(thickness=self.z.stop)
+        elif (
+            (self.z.start is not None) and (self.z.stop is None) and (self.z.start < 0)
+        ):
+            self.__class__ = _PMLZhigh
+            if hasattr(grid, "_zhigh_boundary"):
+                raise AttributeError("grid already has an zhigh boundary!")
             setattr(grid, "_zhigh_boundary", self)
+            self._calculate_parameters(thickness=-self.z.start)
         else:
             raise IndexError(
-                "A periodic boundary should be placed at the boundary of the "
-                "grid using a single index (either 0 or -1)"
+                "not a valid slice for a PML. Make sure the slice is at the border of the PML"
             )
 
-class _PeriodicBoundaryX(PeriodicBoundary):
+    def _handle_slice(self, s: ListOrSlice) -> slice:
+        if isinstance(s, list):
+            raise ValueError("One can only use slices to index the grid for a PML")
+        if isinstance(s, slice):
+            return s
+        raise ValueError("Invalid grid indexing used for boundary")
+
+    def _calculate_parameters(self, thickness: int = 10):
+        self.thickness = thickness
+
+        self._set_locations()
+        self._set_shape()
+        self._set_sigmaE()
+        self._set_sigmaH()
+
+        Nx, Ny, Nz = self.shape
+        self.phi_E = bd.zeros((Nx, Ny, Nz, 3))
+        self.phi_H = bd.zeros((Nx, Ny, Nz, 3))
+        self.psi_Ex = bd.zeros((Nx, Ny, Nz, 3))
+        self.psi_Ey = bd.zeros((Nx, Ny, Nz, 3))
+        self.psi_Ez = bd.zeros((Nx, Ny, Nz, 3))
+        self.psi_Hx = bd.zeros((Nx, Ny, Nz, 3))
+        self.psi_Hy = bd.zeros((Nx, Ny, Nz, 3))
+        self.psi_Hz = bd.zeros((Nx, Ny, Nz, 3))
+
+        self.bE = bd.exp(-(self.sigmaE / self.k + self.a) * self.grid.courant_number)
+        self.cE = (
+            (self.bE - 1.0)
+            * self.sigmaE
+            / (self.sigmaE * self.k + self.a * self.k ** 2)
+        )
+
+        self.bH = bd.exp(-(self.sigmaH / self.k + self.a) * self.grid.courant_number)
+        self.cH = (
+            (self.bH - 1.0)
+            * self.sigmaH
+            / (self.sigmaH * self.k + self.a * self.k ** 2)
+        )
+
     def update_E(self):
-        self.grid.E[0, :, :, :] = self.grid.E[-1, :, :, :]
+        self.grid.E[self.loc] += (
+            self.grid.courant_number
+            * self.grid.inverse_permittivity[self.loc]
+            * self.phi_E
+        )
 
     def update_H(self):
-        self.grid.H[-1, :, :, :] = self.grid.H[0, :, :, :]
+        self.grid.H[self.loc] -= (
+            self.grid.courant_number
+            * self.grid.inverse_permeability[self.loc]
+            * self.phi_H
+        )
 
-class _PeriodicBoundaryY(PeriodicBoundary):
-    def update_E(self):
-        self.grid.E[:, 0, :, :] = self.grid.E[:, -1, :, :]
+    def update_phi_E(self):
+        self.psi_Ex *= self.bE
+        self.psi_Ey *= self.bE
+        self.psi_Ez *= self.bE
 
-    def update_H(self):
-        self.grid.H[:, -1, :, :] = self.grid.H[:, 0, :, :]
+        c = self.cE
+        Hx = self.grid.H[self.locx]
+        Hy = self.grid.H[self.locy]
+        Hz = self.grid.H[self.locz]
+
+        self.psi_Ex[:, 1:, :, 1] += (Hz[:, 1:, :] - Hz[:, :-1, :]) * c[:, 1:, :, 1]
+        self.psi_Ex[:, :, 1:, 2] += (Hy[:, :, 1:] - Hy[:, :, :-1]) * c[:, :, 1:, 2]
+
+        self.psi_Ey[:, :, 1:, 2] += (Hx[:, :, 1:] - Hx[:, :, :-1]) * c[:, :, 1:, 2]
+        self.psi_Ey[1:, :, :, 0] += (Hz[1:, :, :] - Hz[:-1, :, :]) * c[1:, :, :, 0]
+
+        self.psi_Ez[1:, :, :, 0] += (Hy[1:, :, :] - Hy[:-1, :, :]) * c[1:, :, :, 0]
+        self.psi_Ez[:, 1:, :, 1] += (Hx[:, 1:, :] - Hx[:, :-1, :]) * c[:, 1:, :, 1]
+
+        self.phi_E[..., 0] = self.psi_Ex[..., 1] - self.psi_Ex[..., 2]
+        self.phi_E[..., 1] = self.psi_Ey[..., 2] - self.psi_Ey[..., 0]
+        self.phi_E[..., 2] = self.psi_Ez[..., 0] - self.psi_Ez[..., 1]
+
+    def update_phi_H(self):
+        self.psi_Hx *= self.bH
+        self.psi_Hy *= self.bH
+        self.psi_Hz *= self.bH
+
+        c = self.cH
+        Ex = self.grid.E[self.locx]
+        Ey = self.grid.E[self.locy]
+        Ez = self.grid.E[self.locz]
+
+        self.psi_Hx[:, :-1, :, 1] += (Ez[:, 1:, :] - Ez[:, :-1, :]) * c[:, :-1, :, 1]
+        self.psi_Hx[:, :, :-1, 2] += (Ey[:, :, 1:] - Ey[:, :, :-1]) * c[:, :, :-1, 2]
+
+        self.psi_Hy[:, :, :-1, 2] += (Ex[:, :, 1:] - Ex[:, :, :-1]) * c[:, :, :-1, 2]
+        self.psi_Hy[:-1, :, :, 0] += (Ez[1:, :, :] - Ez[:-1, :, :]) * c[:-1, :, :, 0]
+
+        self.psi_Hz[:-1, :, :, 0] += (Ey[1:, :, :] - Ey[:-1, :, :]) * c[:-1, :, :, 0]
+        self.psi_Hz[:, :-1, :, 1] += (Ex[:, 1:, :] - Ex[:, :-1, :]) * c[:, :-1, :, 1]
+
+        self.phi_H[..., 0] = self.psi_Hx[..., 1] - self.psi_Hx[..., 2]
+        self.phi_H[..., 1] = self.psi_Hy[..., 2] - self.psi_Hy[..., 0]
+        self.phi_H[..., 2] = self.psi_Hz[..., 0] - self.psi_Hz[..., 1]
 
 
-class _PeriodicBoundaryZ(PeriodicBoundary):
-    def update_E(self):
-        self.grid.E[:, :, 0, :] = self.grid.E[:, :, -1, :]
+class _PMLXlow(PML):
+    def _set_locations(self):
+        self.loc = (slice(None, self.thickness), slice(None), slice(None), slice(None))
+        self.locx = (slice(None, self.thickness), slice(None), slice(None), 0)
+        self.locy = (slice(None, self.thickness), slice(None), slice(None), 1)
+        self.locz = (slice(None, self.thickness), slice(None), slice(None), 2)
 
-    def update_H(self):
-        self.grid.H[:, :, -1, :] = self.grid.H[:, :, 0, :]
+    def _set_shape(self):
+        self.shape = (self.thickness, self.grid.Ny, self.grid.Nz)
+
+    def _set_sigmaE(self):
+        sigma = self._sigma(bd.arange(self.thickness - 0.5, -0.5, -1.0))
+        self.sigmaE = bd.zeros((self.thickness, self.grid.Ny, self.grid.Nz, 3))
+        self.sigmaE[:, :, :, 0] = sigma[:, None, None]
+
+    def _set_sigmaH(self):
+        sigma = self._sigma(bd.arange(self.thickness - 1.0, 0, -1.0))
+        self.sigmaH = bd.zeros((self.thickness, self.grid.Ny, self.grid.Nz, 3))
+        self.sigmaH[:-1, :, :, 0] = sigma[:, None, None]
+
+
+class _PMLXhigh(PML):
+    def _set_locations(self):
+        self.loc = (slice(-self.thickness, None), slice(None), slice(None), slice(None))
+        self.locx = (slice(-self.thickness, None), slice(None), slice(None), 0)
+        self.locy = (slice(-self.thickness, None), slice(None), slice(None), 1)
+        self.locz = (slice(-self.thickness, None), slice(None), slice(None), 2)
+
+    def _set_shape(self):
+        self.shape = (self.thickness, self.grid.Ny, self.grid.Nz)
+
+    def _set_sigmaE(self):
+        sigma = self._sigma(bd.arange(0.5, self.thickness + 0.5, 1.0))
+        self.sigmaE = bd.zeros((self.thickness, self.grid.Ny, self.grid.Nz, 3))
+        self.sigmaE[:, :, :, 0] = sigma[:, None, None]
+
+    def _set_sigmaH(self):
+        sigma = self._sigma(bd.arange(1.0, self.thickness, 1.0))
+        self.sigmaH = bd.zeros((self.thickness, self.grid.Ny, self.grid.Nz, 3))
+        self.sigmaH[:-1, :, :, 0] = sigma[:, None, None]
+
+
+class _PMLYlow(PML):
+    def _set_locations(self):
+        self.loc = (slice(None), slice(None, self.thickness), slice(None))
+        self.locx = (slice(None), slice(None, self.thickness), slice(None), 0)
+        self.locy = (slice(None), slice(None, self.thickness), slice(None), 1)
+        self.locz = (slice(None), slice(None, self.thickness), slice(None), 2)
+
+    def _set_shape(self):
+        self.shape = (self.grid.Nx, self.thickness, self.grid.Nz)
+
+    def _set_sigmaE(self):
+        sigma = self._sigma(bd.arange(self.thickness - 0.5, -0.5, -1.0))
+        self.sigmaE = bd.zeros((self.grid.Nx, self.thickness, self.grid.Nz, 3))
+        self.sigmaE[:, :, :, 1] = sigma[None, :, None]
+
+    def _set_sigmaH(self):
+        sigma = self._sigma(bd.arange(self.thickness - 1.0, 0, -1.0))
+        self.sigmaH = bd.zeros((self.grid.Nx, self.thickness, self.grid.Nz, 3))
+        self.sigmaH[:, :-1, :, 1] = sigma[None, :, None]
+
+
+class _PMLYhigh(PML):
+    def _set_locations(self):
+        self.loc = (slice(None), slice(-self.thickness, None), slice(None), slice(None))
+        self.locx = (slice(None), slice(-self.thickness, None), slice(None), 0)
+        self.locy = (slice(None), slice(-self.thickness, None), slice(None), 1)
+        self.locz = (slice(None), slice(-self.thickness, None), slice(None), 2)
+
+    def _set_shape(self):
+        self.shape = (self.grid.Nx, self.thickness, self.grid.Nz)
+
+    def _set_sigmaE(self):
+        sigma = self._sigma(bd.arange(0.5, self.thickness + 0.5, 1.0))
+        self.sigmaE = bd.zeros((self.grid.Nx, self.thickness, self.grid.Nz, 3))
+        self.sigmaE[:, :, :, 1] = sigma[None, :, None]
+
+    def _set_sigmaH(self):
+        sigma = self._sigma(bd.arange(1.0, self.thickness, 1.0))
+        self.sigmaH = bd.zeros((self.grid.Nx, self.thickness, self.grid.Nz, 3))
+        self.sigmaH[:, :-1, :, 1] = sigma[None, :, None]
+
+
+class _PMLZlow(PML):
+    def _set_locations(self):
+        self.loc = (slice(None), slice(None), slice(None, self.thickness), slice(None))
+        self.locx = (slice(None), slice(None), slice(None, self.thickness), 0)
+        self.locy = (slice(None), slice(None), slice(None, self.thickness), 1)
+        self.locz = (slice(None), slice(None), slice(None, self.thickness), 2)
+
+    def _set_shape(self):
+        self.shape = (self.grid.Nx, self.grid.Ny, self.thickness)
+
+    def _set_sigmaE(self):
+        sigma = self._sigma(bd.arange(self.thickness - 0.5, -0.5, -1.0))
+        self.sigmaE = bd.zeros((self.grid.Nx, self.grid.Ny, self.thickness, 3))
+        self.sigmaE[:, :, :, 2] = sigma[None, None, :]
+
+    def _set_sigmaH(self):
+        sigma = self._sigma(bd.arange(self.thickness - 1.0, 0, -1.0))
+        self.sigmaH = bd.zeros((self.grid.Nx, self.grid.Ny, self.thickness, 3))
+        self.sigmaH[:, :, :-1, 2] = sigma[None, None, :]
+
+
+class _PMLZhigh(PML):
+    def _set_locations(self):
+        self.loc = (slice(None), slice(None), slice(-self.thickness, None), slice(None))
+        self.locx = (slice(None), slice(None), slice(-self.thickness, None), 0)
+        self.locy = (slice(None), slice(None), slice(-self.thickness, None), 1)
+        self.locz = (slice(None), slice(None), slice(-self.thickness, None), 2)
+
+    def _set_shape(self):
+        self.shape = (self.grid.Nx, self.grid.Ny, self.thickness)
+
+    def _set_sigmaE(self):
+        sigma = self._sigma(bd.arange(0.5, self.thickness + 0.5, 1.0))
+        self.sigmaE = bd.zeros((self.grid.Nx, self.grid.Ny, self.thickness, 3))
+        self.sigmaE[:, :, :, 2] = sigma[None, None, :]
+
+    def _set_sigmaH(self):
+        sigma = self._sigma(bd.arange(1.0, self.thickness, 1.0))
+        self.sigmaH = bd.zeros((self.grid.Nx, self.grid.Ny, self.thickness, 3))
+        self.sigmaH[:, :, :-1, 2] = sigma[None, None, :]

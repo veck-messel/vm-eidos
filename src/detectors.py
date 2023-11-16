@@ -1,4 +1,4 @@
-from utils.typing_ import ListOrSlice, Tuple, List
+from .utils.typing_ import ListOrSlice, Tuple, List
 
 from .grid import Grid
 from .backend import backend as bd

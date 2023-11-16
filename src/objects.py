@@ -1,5 +1,5 @@
-from utils import constants as const
-from utils.typing_ import Tensorlike, ListOrSlice
+from .utils import constants as const
+from .utils.typing_ import Tensorlike, ListOrSlice
 
 from .backend import backend as bd
 from .grid import Grid
